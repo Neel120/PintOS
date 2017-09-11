@@ -40,7 +40,9 @@ process_execute (const char *file_name)
   strlcpy (fn_copy, file_name, PGSIZE);
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  char * save_ptr;
+  char * token = strtok_r(file_name, " ",&save_ptr);
+  tid = thread_create (token, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
@@ -68,7 +70,7 @@ start_process (void *file_name_)
   /* If load failed, quit. */
   palloc_free_page (file_name);
   if (!success) 
-    thread_exit ();
+    thread_exit (-1);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -90,15 +92,14 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  while(1);
-  return -1;
+  return waiter(child_tid);
 }
 
 /* Free the current process's resources. */
 void
-process_exit(void)
+process_exit()
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
@@ -487,8 +488,6 @@ setup_stack (void **esp, const char * file_name, char ** save_ptr)
         tmp3 = 0;
         *esp-=sizeof(void *);
         memcpy(*esp,&tmp3,sizeof(void *));
-        
-        test_stack(*esp);
       }
       else
       {
