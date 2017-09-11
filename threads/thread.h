@@ -98,6 +98,9 @@ struct thread
     struct list_elem allelem;           /* List element for all threads list. */
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
+    struct thread * parent_thread;      /* The parent thread */
+    struct list waiters;                /* Processes waiting for execution to finish. */
+    int waitret;                        /* Return status from an exit. */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -131,7 +134,7 @@ struct thread *thread_current (void);
 tid_t thread_tid (void);
 const char *thread_name (void);
 
-void thread_exit (void) NO_RETURN;
+void thread_exit (int status) NO_RETURN;
 void thread_yield (void);
 void thread_check_yield(void);
 
@@ -153,4 +156,5 @@ int thread_get_load_avg (void);
 void priority_donate(void);
 int thread_priority_temporarily_up (void);
 int thread_priority_restore (void);
+int waiter(tid_t);
 #endif /* threads/thread.h */

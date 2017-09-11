@@ -94,6 +94,28 @@ static bool wakeup_compare(const struct list_elem *a, const struct list_elem *b,
   return list_entry(a,struct thread, elem)->wakeup_time < list_entry(b,struct thread, elem)->wakeup_time;
 }
 
+int waiter(tid_t child_tid){
+    enum intr_level old_level = intr_disable();
+    struct list_elem * e;
+    struct thread * t;
+    for (e=list_begin(&all_list);e!=list_end(&all_list);e=list_next(e))
+    {
+      t = list_entry(e, struct thread, allelem);
+      if(t->tid == child_tid)
+        break;
+    }
+    if (e==list_end(&all_list))
+      return -1;
+
+    list_push_back(&(t->waiters),&(thread_current ()->elem));
+    thread_block();
+
+    int x = thread_current ()->waitret;
+    thread_current ()->waitret = 0;
+    intr_set_level(old_level);
+    return x;
+}
+
 void test_stack(int *t)
 { 
   int i;
@@ -296,9 +318,10 @@ thread_create (const char *name, int priority,
     return TID_ERROR;
 
   /* Initialize thread. */
-  printf("Creating thread : %s\n", (char *)aux);
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
+
+  t->parent_thread = thread_current ();
 
   /* Prepare thread for first run by initializing its stack.
      Do this atomically so intermediate values for the 'stack' 
@@ -499,18 +522,27 @@ thread_tid (void)
 /* Deschedules the current thread and destroys it.  Never
    returns to the caller. */
 void
-thread_exit (void) 
+thread_exit (int status) 
 {
   ASSERT (!intr_context ());
 
 #ifdef USERPROG
   process_exit ();
+  printf("%s: exit(%d)\n", thread_current ()->name, status);
 #endif
 
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it call schedule_tail(). */
   intr_disable ();
+  struct list_elem * e;
+  struct thread * t = thread_current ();
+  for(e = list_begin(&(t->waiters)); e != list_end(&(t->waiters)); e = list_begin(&(t->waiters))){
+    struct thread * t2 = list_entry(e, struct thread, elem);
+    list_remove(e);
+    t2->waitret = status;
+    thread_unblock(t2);
+  }
   list_remove (&thread_current()->allelem);
   thread_current ()->status = THREAD_DYING;
   schedule ();
@@ -753,7 +785,7 @@ kernel_thread (thread_func *function, void *aux)
 
   intr_enable ();       /* The scheduler runs with interrupts off. */
   function (aux);       /* Execute the thread function. */
-  thread_exit ();       /* If function() returns, kill the thread. */
+  thread_exit (0);       /* If function() returns, kill the thread. */
 }
 
 /* Returns the running thread. */
@@ -795,6 +827,8 @@ init_thread (struct thread *t, const char *name, int priority)
   t->magic = THREAD_MAGIC;
   t->niceness = 0;
   t->recent_cpu = 0;
+  t->waitret = 0;
+  list_init(&(t->waiters));
   if(thread_mlfqs)
   {
     t->temp_priority = t->priority = PRI_MAX;   
