@@ -101,6 +101,8 @@ struct thread
     struct thread * parent_thread;      /* The parent thread */
     struct list waiters;                /* Processes waiting for execution to finish. */
     int waitret;                        /* Return status from an exit. */
+    struct list files;                  /* The list of files opened by this thread. */
+    int fd_last;                        /* The last file descriptor. */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */

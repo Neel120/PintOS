@@ -829,6 +829,8 @@ init_thread (struct thread *t, const char *name, int priority)
   t->recent_cpu = 0;
   t->waitret = 0;
   list_init(&(t->waiters));
+  list_init(&(t->files));
+  t->fd_last = 2;
   if(thread_mlfqs)
   {
     t->temp_priority = t->priority = PRI_MAX;   
