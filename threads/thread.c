@@ -571,8 +571,6 @@ thread_exit (int status)
   struct list_elem * e;
   struct thread * t = thread_current ();
 
-  close_all_files(t);
-
   if(list_size(&(t->waiters)))
   {
     for(e = list_begin(&(t->waiters)); e != list_end(&(t->waiters)); e = list_begin(&(t->waiters))){
