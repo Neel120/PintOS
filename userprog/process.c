@@ -41,10 +41,18 @@ process_execute (const char *file_name)
 
   /* Create a new thread to execute FILE_NAME. */
   char * save_ptr;
-  char * token = strtok_r(file_name, " ",&save_ptr);
+  char * token = malloc(strlen(file_name)+1);
+  strlcpy(token,file_name,strlen(file_name)+1);
+  token = strtok_r(token, " ",&save_ptr);
   tid = thread_create (token, PRI_DEFAULT, start_process, fn_copy);
+  free(token);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
+
+  sema_down(&(thread_current ()->childlock));
+
+  if(!thread_current ()->created)
+    return -1;
   return tid;
 }
 
@@ -69,9 +77,14 @@ start_process (void *file_name_)
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
-  if (!success) 
+  if (!success){
+    thread_current ()->parent_thread->created = false;
+    sema_up(&(thread_current ()->parent_thread->childlock));
     thread_exit (-1);
+  }
 
+  thread_current ()->parent_thread->created = true;
+  sema_up(&(thread_current ()->parent_thread->childlock));
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -103,6 +116,7 @@ process_exit()
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
+  close_all_files(cur);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -120,6 +134,8 @@ process_exit()
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+
+  file_close(cur->filepnt);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -232,6 +248,8 @@ load (const char *file_name, void (**eip) (void), void **esp, char ** save_ptr)
 
   /* Open executable file. */
   file = filesys_open (file_name);
+  t->filepnt = file;
+  file_deny_write(t->filepnt);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
@@ -321,7 +339,6 @@ load (const char *file_name, void (**eip) (void), void **esp, char ** save_ptr)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
   return success;
 }
 
