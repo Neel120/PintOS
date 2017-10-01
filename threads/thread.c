@@ -34,6 +34,10 @@ static struct list all_list;
    wakeup_time. */
 static struct list sleepers_list;
 
+/* List of already finished processes to allow for wait system
+   call to be implemented. */
+static struct list dead_list;
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -43,12 +47,24 @@ static struct thread *initial_thread;
 /* Lock used by allocate_tid(). */
 static struct lock tid_lock;
 
+/* Lock for file system access by User Programs. */
+//static struct lock filesys_lock;
+
 /* Stack frame for kernel_thread(). */
 struct kernel_thread_frame 
   {
     void *eip;                  /* Return address. */
     thread_func *function;      /* Function to call. */
     void *aux;                  /* Auxiliary data for function. */
+  };
+
+/* Structure for processes which have finished execution. */
+struct dead_thread 
+  {
+    tid_t tid;
+    tid_t ptid;
+    int exit_status;
+    struct list_elem dead_elem;
   };
 
 /* Statistics. */
@@ -97,23 +113,38 @@ static bool wakeup_compare(const struct list_elem *a, const struct list_elem *b,
 int waiter(tid_t child_tid){
     enum intr_level old_level = intr_disable();
     struct list_elem * e;
-    struct thread * t;
-    for (e=list_begin(&all_list);e!=list_end(&all_list);e=list_next(e))
+    struct dead_thread * dt;
+    for(e=list_begin(&dead_list);e!=list_end(&dead_list);e=list_next(e))
     {
-      t = list_entry(e, struct thread, allelem);
-      if(t->tid == child_tid)
-        break;
+      dt = list_entry(e,struct dead_thread, dead_elem);
+      if(dt->tid==child_tid){
+        intr_set_level(old_level);
+        
+        if(dt->ptid!=thread_current ()->tid)
+          return -1;
+        
+        int x = dt->exit_status;
+        list_remove(e);
+        free(dt);
+        return x;
+      }
     }
-    if (e==list_end(&all_list))
-      return -1;
-
-    list_push_back(&(t->waiters),&(thread_current ()->elem));
-    thread_block();
-
-    int x = thread_current ()->waitret;
-    thread_current ()->waitret = 0;
+    struct thread * t;
+    for(e = list_begin(&all_list);e!=list_end(&all_list);e=list_next(e))
+    {
+      t=list_entry(e,struct thread, allelem);
+      if(t->tid==child_tid)
+      {
+        list_push_back(&(t->waiters),&(thread_current ()->elem));
+        thread_block();  
+        int x = thread_current ()->waitret;
+        thread_current ()->waitret = 0;
+        intr_set_level(old_level);
+        return x;    
+      }
+    }
     intr_set_level(old_level);
-    return x;
+    return -1;
 }
 
 void test_stack(int *t)
@@ -149,6 +180,7 @@ thread_init (void)
   list_init (&ready_list);
   list_init (&all_list);
   list_init (&sleepers_list);
+  list_init (&dead_list);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -342,7 +374,7 @@ thread_create (const char *name, int priority,
   sf = alloc_frame (t, sizeof *sf);
   sf->eip = switch_entry;
   sf->ebp = 0;
-
+  //printf("Created Thread : %s\n", name);
   intr_set_level (old_level);
   /* Add to run queue. */
   thread_unblock (t);
@@ -534,14 +566,28 @@ thread_exit (int status)
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it call schedule_tail(). */
+
   intr_disable ();
   struct list_elem * e;
   struct thread * t = thread_current ();
-  for(e = list_begin(&(t->waiters)); e != list_end(&(t->waiters)); e = list_begin(&(t->waiters))){
-    struct thread * t2 = list_entry(e, struct thread, elem);
-    list_remove(e);
-    t2->waitret = status;
-    thread_unblock(t2);
+
+  close_all_files(t);
+
+  if(list_size(&(t->waiters)))
+  {
+    for(e = list_begin(&(t->waiters)); e != list_end(&(t->waiters)); e = list_begin(&(t->waiters))){
+      struct thread * t2 = list_entry(e, struct thread, elem);
+      list_remove(e);
+      t2->waitret = status;
+      thread_unblock(t2);
+    }
+  }
+  else{
+    struct dead_thread * dt = malloc(sizeof(struct dead_thread));
+    dt->tid = t->tid;
+    dt->exit_status = status;
+    dt->ptid = t->parent_thread->tid;
+    list_push_back(&dead_list,&(dt->dead_elem));  
   }
   list_remove (&thread_current()->allelem);
   thread_current ()->status = THREAD_DYING;
@@ -830,6 +876,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->waitret = 0;
   list_init(&(t->waiters));
   list_init(&(t->files));
+  sema_init(&(t->childlock),0);
   t->fd_last = 2;
   if(thread_mlfqs)
   {

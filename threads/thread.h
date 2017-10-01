@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include <synch.h>
+#include "threads/synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -103,7 +104,9 @@ struct thread
     int waitret;                        /* Return status from an exit. */
     struct list files;                  /* The list of files opened by this thread. */
     int fd_last;                        /* The last file descriptor. */
-
+    struct semaphore childlock;         /* Semaphore to ensure child process is created. */
+    bool created;                       /* Boolean value to return successful creation of child process. */
+    struct file * filepnt;
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
